@@ -56,7 +56,10 @@ class Tasnif:
         The function calculates embeddings, performs PCA, and applies K-means clustering to the
         embeddings.
         """
-
+        if not self.images:
+            logging.warning("No images have been read. Please call the read method before calculating.")
+            return
+        
         self.embeddings = get_embeddings(use_gpu=self.use_gpu, images=self.images)
         self.pca_embeddings = calculate_pca(self.embeddings, self.pca_dim)
         self.centroid, self.labels, self.counts = calculate_kmeans(
