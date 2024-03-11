@@ -46,6 +46,14 @@ Finally, export the clustered images and visualization grids to a specified dire
 classifier.export('path/to/output')
 ```
 
+## To-Do
+
+- [ ] Prevent calculation if there is no image read (PCA & k-means)
+- [ ] Export embeddings
+- [ ] Make model independent from img2vec
+- [ ] Separate cpu and gpu installation and catch gpu errors
+
+
 ## Contributing
 
 Contributions to `Tasnif` are welcome! Please fork the repository and submit a pull request with your proposed changes.
