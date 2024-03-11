@@ -76,7 +76,7 @@ class Tasnif:
         create_dir(project_path)
 
         for label_number in tqdm(range(self.num_classes)):
-            logging.info(f"Exporting images for cluster {label_number}...")
+
             label_mask = self.labels == label_number
             path_images = list(compress(self.image_paths, label_mask))
             target_directory = os.path.join(project_path, f"cluster_{label_number}")
@@ -96,3 +96,5 @@ class Tasnif:
             # Create an image grid for the current label
             label_images = list(compress(self.images, label_mask))
             create_image_grid(label_images, project_path, label_number)
+
+        logging.info(f"Exported images and grids to {project_path}")
