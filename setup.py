@@ -1,11 +1,21 @@
-from setuptools import setup
+from setuptools import setup, find_packages
+
 
 setup(
     name="tasnif",
-    version="0.1.0",
-    packages=["tasnif"],
-    install_requires=["tqdm", "torch", "numpy", "Pillow", "scikit-learn", "matplotlib"],
-    python_requires=">=3.6",
+    version="0.1.6",
+    install_requires=[
+        "numpy",
+        "scikit-learn",
+        "matplotlib",
+        "Pillow",
+        "scipy",
+        "tqdm",
+        "torch",
+        "torchvision",
+        "img2vec_pytorch",
+    ],
+    python_requires=">=3.9",
     author="Mert Cobanov",
     author_email="mertcobanov@gmail.com",
     description="A simple library for unsupervised image clustering",
