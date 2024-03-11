@@ -1,4 +1,8 @@
-# Tasnif
+
+<p align="center">
+  <img src="assets/asdd.png" width="350" alt="accessibility text">
+</p>
+
 
 Tasnif is a Python package designed for clustering images into user-defined classes based on their visual content. It utilizes deep learning to generate image embeddings, Principal Component Analysis (PCA) for dimensionality reduction, and K-means for clustering. Tasnif supports processing on both GPU and CPU, making it versatile for different computational environments.
 
