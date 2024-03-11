@@ -1,8 +1,10 @@
+import logging
 import os
 import shutil
 import warnings
 from itertools import compress
 
+from rich.logging import RichHandler
 from tqdm import tqdm
 
 from .calculations import calculate_kmeans, calculate_pca, get_embeddings
@@ -14,6 +16,13 @@ from .utils import (
 )
 
 warnings.filterwarnings("ignore")
+
+
+# Configure logging
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+logging.basicConfig(
+    level="INFO", format=LOG_FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+)
 
 
 class Tasnif:
@@ -67,6 +76,7 @@ class Tasnif:
         create_dir(project_path)
 
         for label_number in tqdm(range(self.num_classes)):
+            logging.info(f"Exporting images for cluster {label_number}...")
             label_mask = self.labels == label_number
             path_images = list(compress(self.image_paths, label_mask))
             target_directory = os.path.join(project_path, f"cluster_{label_number}")
@@ -79,7 +89,9 @@ class Tasnif:
                 try:
                     shutil.copy2(img_path, target_directory)
                 except Exception as e:
-                    print(f"Error copying {img_path} to {target_directory}: {e}")
+                    logging.error(
+                        f"Error copying {img_path} to {target_directory}: {e}"
+                    )
 
             # Create an image grid for the current label
             label_images = list(compress(self.images, label_mask))

@@ -1,7 +1,16 @@
+import logging
+
 import numpy as np
 from img2vec_pytorch import Img2Vec
+from rich.logging import RichHandler
 from scipy.cluster.vq import kmeans2
 from sklearn.decomposition import PCA
+
+# Configure logging
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+logging.basicConfig(
+    level="INFO", format=LOG_FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+)
 
 
 def get_embeddings(use_gpu=False, images=None):
@@ -10,7 +19,7 @@ def get_embeddings(use_gpu=False, images=None):
     image embeddings.
     """
 
-    print(f"Img2Vec is running on {'GPU' if use_gpu else 'CPU'}...")
+    logging.info(f"Img2Vec is running on {'GPU' if use_gpu else 'CPU'}...")
     img2vec = Img2Vec(cuda=use_gpu)
 
     embeddings = img2vec.get_vec(images, tensor=False)
@@ -32,11 +41,10 @@ def calculate_pca(embeddings, pca_dim):
     specified dimensionality reduction (`pca_dim`).
     """
 
-    print("Calculating PCA")
     n_samples, _ = embeddings.shape
     if n_samples < pca_dim:
         n_components = min(n_samples, pca_dim)
-        print(
+        logging.info(
             f"Number of samples is less than the desired dimension. Setting n_components to {n_components}"
         )
 
@@ -45,7 +53,7 @@ def calculate_pca(embeddings, pca_dim):
 
     pca = PCA(n_components=n_components)
     pca_embeddings = pca.fit_transform(embeddings.squeeze())
-    print("PCA calculating done!")
+    logging.info("PCA calculated.")
     return pca_embeddings
 
 
@@ -54,7 +62,7 @@ def calculate_kmeans(pca_embeddings, num_classes):
     The function `calculate_kmeans` performs KMeans clustering on PCA embeddings data to assign
     labels and centroids.
     """
-    print("KMeans processing...")
+
     if not isinstance(pca_embeddings, np.ndarray):
         raise ValueError("pca_embeddings must be a numpy array")
 
@@ -66,6 +74,7 @@ def calculate_kmeans(pca_embeddings, num_classes):
     try:
         centroid, labels = kmeans2(data=pca_embeddings, k=num_classes, minit="points")
         counts = np.bincount(labels)
+        logging.info("KMeans calculated.")
         return centroid, labels, counts
 
     except Exception as e:
