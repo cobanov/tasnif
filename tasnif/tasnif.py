@@ -3,6 +3,7 @@ import os
 import shutil
 import warnings
 from itertools import compress
+import numpy as np
 
 from rich.logging import RichHandler
 from tqdm import tqdm
@@ -101,3 +102,19 @@ class Tasnif:
             create_image_grid(label_images, project_path, label_number)
 
         logging.info(f"Exported images and grids to {project_path}")
+
+
+    def export_embeddings(self, output_folder="./"):
+        """
+        Export the calculated embeddings to a specified output folder.
+
+        Parameters:
+        - output_folder (str): The directory to export the embeddings into.
+        """
+        if self.embeddings is None:
+            logging.warning("Embeddings have not been calculated. Please call the calculate method first.")
+            return
+        
+        embeddings_path = os.path.join(output_folder, f"{self.project_name}_embeddings.npy")
+        np.save(embeddings_path, self.embeddings)
+        logging.info(f"Embeddings have been saved to {embeddings_path}")
