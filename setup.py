@@ -13,6 +13,7 @@ setup(
         "torch",
         "torchvision",
         "img2vec_pytorch",
+        "rich",
     ],
     python_requires=">=3.9",
     author="Mert Cobanov",
