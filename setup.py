@@ -1,8 +1,8 @@
-from setuptools import find_packages, setup
+from setuptools import setup
 
 setup(
     name="tasnif",
-    version="0.1.7",
+    version="0.1.9",
     install_requires=[
         "numpy",
         "scikit-learn",
@@ -16,6 +16,8 @@ setup(
         "rich",
     ],
     python_requires=">=3.9",
+    packages=["tasnif"],
+    package_dir={"tasnif": "tasnif"},
     author="Mert Cobanov",
     author_email="mertcobanov@gmail.com",
     description="A simple library for unsupervised image clustering",
