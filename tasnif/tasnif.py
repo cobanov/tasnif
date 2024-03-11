@@ -5,13 +5,9 @@ from itertools import compress
 
 from tqdm import tqdm
 
-from .calculations import get_embeddings, calculate_pca, calculate_kmeans
-from .utils import (
-    read_images_from_directory,
-    read_with_pil,
-    create_dir,
-    create_image_grid,
-)
+from .calculations import calculate_kmeans, calculate_pca, get_embeddings
+from .utils import (create_dir, create_image_grid, read_images_from_directory,
+                    read_with_pil)
 
 warnings.filterwarnings("ignore")
 
