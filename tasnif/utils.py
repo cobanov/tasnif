@@ -46,14 +46,14 @@ def create_image_grid(label_images, project_path, label_number):
     :param label_number: The label number.
     """
 
-    for i in range(len(label_images)):
+    for i, image in enumerate(label_images):
         if i >= 9:
             break
-        image = label_images[i]
         plt.subplot(3, 3, i + 1)
         plt.imshow(image, cmap="gray", interpolation="none")
         plt.title(f"Class: {label_number}")
         plt.axis("off")
+        # Save the figure after creating all subplots
         plt.savefig(f"{project_path}/grid_{label_number}.png", dpi=300)
 
 
