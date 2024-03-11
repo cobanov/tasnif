@@ -41,7 +41,17 @@ def calculate_kmeans(pca_embeddings, num_classes):
     labels and centroids.
     """
     print("KMeans processing...")
-    centroid, labels = kmeans2(data=pca_embeddings, k=num_classes, minit="points")
-    counts = np.bincount(labels)
-    print("Kmeans done!")
-    return centroid, labels, counts
+    if not isinstance(pca_embeddings, np.ndarray):
+        raise ValueError("pca_embeddings must be a numpy array")
+
+    if num_classes > len(pca_embeddings):
+        raise ValueError(
+            "num_classes must be less than or equal to the number of samples in pca_embeddings"
+        )
+
+    try:
+        centroid, labels = kmeans2(data=pca_embeddings, k=num_classes, minit="points")
+        counts = np.bincount(labels)
+        return centroid, labels, counts
+    except Exception as e:
+        raise RuntimeError(f"An error occurred during KMeans processing: {e}")
