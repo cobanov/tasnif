@@ -6,8 +6,12 @@ from itertools import compress
 from tqdm import tqdm
 
 from .calculations import calculate_kmeans, calculate_pca, get_embeddings
-from .utils import (create_dir, create_image_grid, read_images_from_directory,
-                    read_with_pil)
+from .utils import (
+    create_dir,
+    create_image_grid,
+    read_images_from_directory,
+    read_with_pil,
+)
 
 warnings.filterwarnings("ignore")
 
@@ -19,10 +23,12 @@ class Tasnif:
         self.use_gpu = use_gpu
         self.embeddings = None
         self.pca_embeddings = None
-        self.centroids = None
+        self.centroid = None
         self.labels = None
         self.image_paths = None
         self.images = []
+        self.project_name = None
+        self.counts = None
 
     def read(self, folder_path):
         """
