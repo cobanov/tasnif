@@ -52,8 +52,8 @@ classifier.export('path/to/output')
 
 ## To-Do
 
-- [ ] Prevent calculation if there is no image read (PCA & k-means)
-- [ ] Export embeddings
+- [x] Prevent calculation if there is no image read (PCA & k-means)
+- [x] Export embeddings
 - [ ] Make model independent from img2vec
 - [ ] Separate cpu and gpu installation and catch gpu errors
 
