@@ -1,18 +1,10 @@
 import glob
-import logging
 import os
 from pathlib import Path
-
 import matplotlib.pyplot as plt
 from PIL import Image
-from rich.logging import RichHandler
 from tqdm import tqdm
-
-# Configure logging
-LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-logging.basicConfig(
-    level="INFO", format=LOG_FORMAT, datefmt="[%X]", handlers=[RichHandler()]
-)
+from .logger import info
 
 
 def read_images_from_directory(image_directory: str) -> list:
@@ -25,7 +17,7 @@ def read_images_from_directory(image_directory: str) -> list:
     image_extensions = ("*.gif", "*.png", "*.jpg", "*.jpeg")
     for ext in image_extensions:
         list_of_images.extend(glob.glob(os.path.join(image_directory, ext)))
-    logging.info(f"Images found: {len(list_of_images)}")
+    info(f"Images found: {len(list_of_images)}")
     return list_of_images
 
 
@@ -42,7 +34,7 @@ def read_with_pil(list_of_images: list, resize=True) -> list:
         if resize:
             img.thumbnail((512, 512))
         pil_images.append(img)
-    logging.info("Image reading done!")
+    info("Image reading done!")
     return pil_images
 
 
