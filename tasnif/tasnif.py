@@ -3,6 +3,7 @@ import os
 import shutil
 import warnings
 from itertools import compress
+import numpy as np
 
 from rich.logging import RichHandler
 from tqdm import tqdm
@@ -54,8 +55,11 @@ class Tasnif:
     def calculate(self):
         """
         The function calculates embeddings, performs PCA, and applies K-means clustering to the
-        embeddings.
+        embeddings. It will not perform these operations if no images have been read.
         """
+
+        if not self.images:
+            raise ValueError("The images list can not be empty. Please call the read method before calculating.")
 
         self.embeddings = get_embeddings(use_gpu=self.use_gpu, images=self.images)
         self.pca_embeddings = calculate_pca(self.embeddings, self.pca_dim)
@@ -98,3 +102,20 @@ class Tasnif:
             create_image_grid(label_images, project_path, label_number)
 
         logging.info(f"Exported images and grids to {project_path}")
+
+
+    def export_embeddings(self, output_folder="./"):
+        """
+        Export the calculated embeddings to a specified output folder.
+
+        Parameters:
+        - output_folder (str): The directory to export the embeddings into.
+        """
+        
+        if self.embeddings is None:
+            raise ValueError("Embeddings can not be empty. Please call the calculate method first.")
+            
+        
+        embeddings_path = os.path.join(output_folder, f"{self.project_name}_embeddings.npy")
+        np.save(embeddings_path, self.embeddings)
+        logging.info(f"Embeddings have been saved to {embeddings_path}")
