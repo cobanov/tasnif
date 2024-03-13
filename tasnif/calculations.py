@@ -49,10 +49,13 @@ def calculate_pca(embeddings, pca_dim):
     return pca_embeddings
 
 
-def calculate_kmeans(pca_embeddings, num_classes):
+def calculate_kmeans(pca_embeddings, num_classes, iter=10):
     """
     The function `calculate_kmeans` performs KMeans clustering on PCA embeddings data to assign
     labels and centroids.
+    :param pca_embeddings: The `pca_embeddings` parameter is a NumPy array containing the data points.
+    :param num_classes: The `num_classes` parameter is an integer that specifies the number of clusters.
+    :param iter: The `iter` parameter is an integer that specifies the number of iterations for the KMeans algorithm. Default is 10. Should be a positive integer.
     """
 
     if not isinstance(pca_embeddings, np.ndarray):
@@ -64,7 +67,7 @@ def calculate_kmeans(pca_embeddings, num_classes):
         )
 
     try:
-        centroid, labels = kmeans2(data=pca_embeddings, k=num_classes, minit="points")
+        centroid, labels = kmeans2(data=pca_embeddings, k=num_classes, minit="points", iter=iter)
         counts = np.bincount(labels)
         info("KMeans calculated.")
         return centroid, labels, counts
