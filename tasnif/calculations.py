@@ -2,6 +2,7 @@ import numpy as np
 from img2vec_pytorch import Img2Vec
 from scipy.cluster.vq import kmeans2
 from sklearn.decomposition import PCA
+
 from .logger import info
 
 
@@ -67,7 +68,9 @@ def calculate_kmeans(pca_embeddings, num_classes, iter=10):
         )
 
     try:
-        centroid, labels = kmeans2(data=pca_embeddings, k=num_classes, minit="points", iter=iter)
+        centroid, labels = kmeans2(
+            data=pca_embeddings, k=num_classes, minit="points", iter=iter
+        )
         counts = np.bincount(labels)
         info("KMeans calculated.")
         return centroid, labels, counts

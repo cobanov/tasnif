@@ -2,16 +2,18 @@ import os
 import shutil
 import warnings
 from itertools import compress
+
 import numpy as np
 from tqdm import tqdm
+
 from .calculations import calculate_kmeans, calculate_pca, get_embeddings
+from .logger import error, info
 from .utils import (
     create_dir,
     create_image_grid,
     read_images_from_directory,
     read_with_pil,
 )
-from .logger import info, error
 
 warnings.filterwarnings("ignore")
 
@@ -52,15 +54,19 @@ class Tasnif:
         """
 
         if not self.images:
-            raise ValueError("The images list can not be empty. Please call the read method before calculating.")
+            raise ValueError(
+                "The images list can not be empty. Please call the read method before calculating."
+            )
 
         self.embeddings = get_embeddings(use_gpu=self.use_gpu, images=self.images)
         if pca:
             self.pca_embeddings = calculate_pca(self.embeddings, self.pca_dim)
-            self.centroid, self.labels, self.counts = calculate_kmeans(self.pca_embeddings, self.num_classes, iter = iter)
+            self.centroid, self.labels, self.counts = calculate_kmeans(
+                self.pca_embeddings, self.num_classes, iter=iter
+            )
         else:
             self.centroid, self.labels, self.counts = calculate_kmeans(
-                self.embeddings, self.num_classes, iter = iter
+                self.embeddings, self.num_classes, iter=iter
             )
 
     def export(self, output_folder="./"):
@@ -76,7 +82,6 @@ class Tasnif:
         create_dir(project_path)
 
         for label_number in tqdm(range(self.num_classes)):
-
             label_mask = self.labels == label_number
             path_images = list(compress(self.image_paths, label_mask))
             target_directory = os.path.join(project_path, f"cluster_{label_number}")
@@ -106,8 +111,12 @@ class Tasnif:
         """
 
         if self.embeddings is None:
-            raise ValueError("Embeddings can not be empty. Please call the calculate method first.")
+            raise ValueError(
+                "Embeddings can not be empty. Please call the calculate method first."
+            )
 
-        embeddings_path = os.path.join(output_folder, f"{self.project_name}_embeddings.npy")
+        embeddings_path = os.path.join(
+            output_folder, f"{self.project_name}_embeddings.npy"
+        )
         np.save(embeddings_path, self.embeddings)
         info(f"Embeddings have been saved to {embeddings_path}")

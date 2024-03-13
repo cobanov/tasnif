@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="tasnif",
-    version="0.1.9",
+    version="0.1.10",
     install_requires=[
         "numpy",
         "scikit-learn",
