@@ -52,20 +52,26 @@ class Tasnif:
         self.image_paths = read_images_from_directory(folder_path)
         self.images = read_with_pil(self.image_paths)
 
-    def calculate(self):
+    def calculate(self, pca=True, iter=10):
         """
         The function calculates embeddings, performs PCA, and applies K-means clustering to the
         embeddings. It will not perform these operations if no images have been read.
+
+        :param pca: The `pca` parameter is a boolean that specifies whether to perform PCA or not. Default is True
+        :param iter: The `iter` parameter is an integer that specifies the number of iterations for the KMeans algorithm. Default is 10.
         """
 
         if not self.images:
             raise ValueError("The images list can not be empty. Please call the read method before calculating.")
 
         self.embeddings = get_embeddings(use_gpu=self.use_gpu, images=self.images)
-        self.pca_embeddings = calculate_pca(self.embeddings, self.pca_dim)
-        self.centroid, self.labels, self.counts = calculate_kmeans(
-            self.pca_embeddings, self.num_classes
-        )
+        if pca:
+            self.pca_embeddings = calculate_pca(self.embeddings, self.pca_dim)
+            self.centroid, self.labels, self.counts = calculate_kmeans(self.pca_embeddings, self.num_classes, iter = iter)
+        else:
+            self.centroid, self.labels, self.counts = calculate_kmeans(
+                self.embeddings, self.num_classes, iter = iter
+            )
 
     def export(self, output_folder="./"):
         """
