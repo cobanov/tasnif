@@ -1,13 +1,9 @@
-import logging
 import os
 import shutil
 import warnings
 from itertools import compress
 import numpy as np
-
-from rich.logging import RichHandler
 from tqdm import tqdm
-
 from .calculations import calculate_kmeans, calculate_pca, get_embeddings
 from .utils import (
     create_dir,
@@ -15,15 +11,9 @@ from .utils import (
     read_images_from_directory,
     read_with_pil,
 )
+from .logger import info, error
 
 warnings.filterwarnings("ignore")
-
-
-# Configure logging
-LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-logging.basicConfig(
-    level="INFO", format=LOG_FORMAT, datefmt="[%X]", handlers=[RichHandler()]
-)
 
 
 class Tasnif:
@@ -93,16 +83,13 @@ class Tasnif:
                 try:
                     shutil.copy2(img_path, target_directory)
                 except Exception as e:
-                    logging.error(
-                        f"Error copying {img_path} to {target_directory}: {e}"
-                    )
+                    error(f"Error copying {img_path} to {target_directory}: {e}")
 
             # Create an image grid for the current label
             label_images = list(compress(self.images, label_mask))
             create_image_grid(label_images, project_path, label_number)
 
-        logging.info(f"Exported images and grids to {project_path}")
-
+        info(f"Exported images and grids to {project_path}")
 
     def export_embeddings(self, output_folder="./"):
         """
@@ -111,11 +98,10 @@ class Tasnif:
         Parameters:
         - output_folder (str): The directory to export the embeddings into.
         """
-        
+
         if self.embeddings is None:
             raise ValueError("Embeddings can not be empty. Please call the calculate method first.")
-            
-        
+
         embeddings_path = os.path.join(output_folder, f"{self.project_name}_embeddings.npy")
         np.save(embeddings_path, self.embeddings)
-        logging.info(f"Embeddings have been saved to {embeddings_path}")
+        info(f"Embeddings have been saved to {embeddings_path}")

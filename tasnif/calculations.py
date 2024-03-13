@@ -1,16 +1,8 @@
-import logging
-
 import numpy as np
 from img2vec_pytorch import Img2Vec
-from rich.logging import RichHandler
 from scipy.cluster.vq import kmeans2
 from sklearn.decomposition import PCA
-
-# Configure logging
-LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-logging.basicConfig(
-    level="INFO", format=LOG_FORMAT, datefmt="[%X]", handlers=[RichHandler()]
-)
+from .logger import info
 
 
 def get_embeddings(use_gpu=False, images=None):
@@ -19,7 +11,7 @@ def get_embeddings(use_gpu=False, images=None):
     image embeddings.
     """
 
-    logging.info(f"Img2Vec is running on {'GPU' if use_gpu else 'CPU'}...")
+    info(f"Img2Vec is running on {'GPU' if use_gpu else 'CPU'}...")
     img2vec = Img2Vec(cuda=use_gpu)
 
     embeddings = img2vec.get_vec(images, tensor=False)
@@ -44,7 +36,7 @@ def calculate_pca(embeddings, pca_dim):
     n_samples, _ = embeddings.shape
     if n_samples < pca_dim:
         n_components = min(n_samples, pca_dim)
-        logging.info(
+        info(
             f"Number of samples is less than the desired dimension. Setting n_components to {n_components}"
         )
 
@@ -53,7 +45,7 @@ def calculate_pca(embeddings, pca_dim):
 
     pca = PCA(n_components=n_components)
     pca_embeddings = pca.fit_transform(embeddings.squeeze())
-    logging.info("PCA calculated.")
+    info("PCA calculated.")
     return pca_embeddings
 
 
@@ -74,7 +66,7 @@ def calculate_kmeans(pca_embeddings, num_classes):
     try:
         centroid, labels = kmeans2(data=pca_embeddings, k=num_classes, minit="points")
         counts = np.bincount(labels)
-        logging.info("KMeans calculated.")
+        info("KMeans calculated.")
         return centroid, labels, counts
 
     except Exception as e:
