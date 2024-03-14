@@ -44,13 +44,15 @@ class Tasnif:
         self.image_paths = read_images_from_directory(folder_path)
         self.images = read_with_pil(self.image_paths)
 
-    def calculate(self, pca=True, iter=10):
+    def calculate(self, pca=True, iter=10, model="resnet-18"):
         """
         The function calculates embeddings, performs PCA, and applies K-means clustering to the
         embeddings. It will not perform these operations if no images have been read.
 
         :param pca: The `pca` parameter is a boolean that specifies whether to perform PCA or not. Default is True
         :param iter: The `iter` parameter is an integer that specifies the number of iterations for the KMeans algorithm. Default is 10.
+        :param model: The `model` parameter is a string that specifies the model to use for generating embeddings. Default is 'resnet-18'.
+            For available models, see https://github.com/christiansafka/img2vec
         """
 
         if not self.images:
@@ -58,7 +60,7 @@ class Tasnif:
                 "The images list can not be empty. Please call the read method before calculating."
             )
 
-        self.embeddings = get_embeddings(use_gpu=self.use_gpu, images=self.images)
+        self.embeddings = get_embeddings(use_gpu=self.use_gpu, images=self.images, model=model)
         if pca:
             self.pca_embeddings = calculate_pca(self.embeddings, self.pca_dim)
             self.centroid, self.labels, self.counts = calculate_kmeans(
