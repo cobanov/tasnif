@@ -6,15 +6,20 @@ from sklearn.decomposition import PCA
 from .logger import info
 
 
-def get_embeddings(use_gpu=False, images=None):
+def get_embeddings(use_gpu=False, images=None, model='resnet-18'):
     """
     This Python function initializes an Img2Vec object, runs it on either GPU or CPU, and retrieves
     image embeddings.
+    :param use_gpu: The `use_gpu` parameter is a boolean that specifies whether to use GPU or CPU.
+    :param images: The `images` parameter is a list of image paths to be used for generating embeddings.
+    :param model: The `model` parameter is a string that specifies the model to use for generating.
+        For available models, see https://github.com/christiansafka/img2vec
+    :return: The function `get_embeddings` returns the embeddings of the images as np.ndarray.
     """
 
     info(f"Img2Vec is running on {'GPU' if use_gpu else 'CPU'}...")
-    img2vec = Img2Vec(cuda=use_gpu)
-
+    img2vec = Img2Vec(cuda=use_gpu, model=model)
+    print(f"Using model: {model}")
     embeddings = img2vec.get_vec(images, tensor=False)
     return embeddings
 
