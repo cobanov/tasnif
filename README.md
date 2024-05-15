@@ -56,6 +56,7 @@ classifier.export('path/to/output')
 - [x] Export embeddings
 - [ ] Make model independent from img2vec
 - [ ] Separate cpu and gpu installation and catch gpu errors
+- [ ] Argument parser
 
 
 ## Contributing
