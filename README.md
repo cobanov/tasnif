@@ -1,74 +1,198 @@
-
 <p align="center">
-  <img src="assets/asdd.png" width="350" alt="accessibility text">
+  <img src="assets/asdd.png" width="350" alt="Tasnif">
 </p>
 
+<p align="center">
+  <strong>Unsupervised image clustering with modern deep embeddings.</strong>
+</p>
 
-Tasnif is a Python package designed for clustering images into user-defined classes based on their visual content. It utilizes deep learning to generate image embeddings, Principal Component Analysis (PCA) for dimensionality reduction, and K-means for clustering. Tasnif supports processing on both GPU and CPU, making it versatile for different computational environments.
+<p align="center">
+  <a href="https://pypi.org/project/tasnif/"><img alt="PyPI" src="https://img.shields.io/pypi/v/tasnif"></a>
+  <a href="https://pypi.org/project/tasnif/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/tasnif"></a>
+  <a href="https://github.com/cobanov/tasnif/actions"><img alt="CI" src="https://github.com/cobanov/tasnif/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</p>
 
-## Features
+`tasnif` turns a folder of images into clusters you can browse on disk - no
+labels required. It uses modern pretrained vision backbones (`timm` by default,
+optionally CLIP via `open_clip`), reduces the embedding with PCA, and runs
+K-Means on top.
 
-- Generate embeddings for images using a pre-trained model.
-- Dimensionality reduction using PCA to enhance clustering performance.
-- Clustering of images into user-specified classes with K-means.
-- Visualization support by creating image grids for each cluster.
-- Efficient image reading and preprocessing utilities.
+## Highlights
+
+- **Modern backbones** - any [`timm`](https://github.com/huggingface/pytorch-image-models) model (ResNet, ConvNeXt, ViT, DINOv2, ...) or [CLIP](https://github.com/mlfoundations/open_clip) via the `[clip]` extra.
+- **GPU / MPS / CPU** with automatic device detection.
+- **scikit-learn-style API**: `fit`, `predict`, `fit_predict`, `transform`.
+- **Rich export**: per-cluster folders, CSV manifest, JSON summary, preview grids, raw embeddings.
+- **Multiple materialization modes**: `copy`, `symlink`, `move`, or `none` (metadata only).
+- **First-class CLI** powered by [Typer](https://typer.tiangolo.com/).
+- **Pluggable embedders** - register your own backend.
+- **Deterministic** with a `random_state` seed.
 
 ## Installation
 
-To install Tasnif, you need Python 3.6 or later. Clone this repository to your local machine and install the required dependencies:
+`tasnif` is built and packaged with [uv](https://docs.astral.sh/uv/), but plain pip works too.
 
 ```bash
-pip install tasnif
+pip install tasnif                # core
+pip install "tasnif[cli]"         # core + CLI
+pip install "tasnif[clip]"        # core + CLIP backend
+pip install "tasnif[all]"         # everything
 ```
 
-## Usage
+Development setup:
 
-Import `Tasnif` and initialize it with the desired number of classes, PCA dimensions, and whether to use GPU:
+```bash
+git clone https://github.com/cobanov/tasnif
+cd tasnif
+uv sync --extra dev
+uv run pytest
+```
+
+## Quickstart - Python API
 
 ```python
-from tasnif import Tasnif
+from tasnif import TasnifClusterer
 
-# Initialize Tasnif with 5 classes, PCA dimensions set to 16, and GPU usage
-classifier = Tasnif(num_classes=5, pca_dim=16, use_gpu=False)
+clf = TasnifClusterer(n_clusters=5, embedder="timm", pca_dim=16)
+clf.fit("photos/")
+result = clf.result_
+
+# Inspect without exporting
+print(result.counts)            # e.g. [42, 31, 28, 19, 7]
+print(result.silhouette)        # None unless compute_silhouette=True
+mapping = result.as_dict()      # {Path('photos/a.jpg'): 2, ...}
+buckets = result.by_cluster()   # {0: [Path(...), ...], 1: [...]}
+
+# Export to disk
+clf.export("output/", mode="copy")
 ```
 
-Read the images from a directory, calculate the embeddings, PCA, and perform K-means clustering:
+## One-shot helper
 
 ```python
-# Read images from a specified directory
-classifier.read('path/to/your/images')
+from tasnif import cluster_directory
 
-# Calculate embeddings, PCA, and perform clustering
-classifier.calculate()
+cluster_directory("photos/", "output/", n_clusters=5, mode="symlink")
 ```
 
-Finally, export the clustered images and visualization grids to a specified directory:
+## CLI
+
+```bash
+# Cluster a directory with the default ResNet-50 (timm) backbone
+tasnif cluster photos/ -k 5 -o output/
+
+# Use CLIP and copy via symlink (fast, non-destructive)
+tasnif cluster photos/ -k 8 --embedder clip --model ViT-B-32 --mode symlink
+
+# Just compute embeddings, save .npy + .json
+tasnif embed photos/ --embedder timm --model convnext_base -o embeddings.npy
+
+# List available backends
+tasnif backends
+```
+
+Run `tasnif --help` to see all options.
+
+## Use a different model
+
+Default is `timm:resnet50`. Pass any `timm` model name:
 
 ```python
-# Export clustered images and grids
-classifier.export('path/to/output')
+clf = TasnifClusterer(
+    n_clusters=8,
+    embedder="timm",
+    embedder_kwargs={"model": "vit_base_patch14_dinov2.lvd142m", "device": "cuda"},
+)
 ```
 
-## To-Do
+CLIP:
 
-- [x] Prevent calculation if there is no image read (PCA & k-means)
-- [x] Export embeddings
-- [ ] Make model independent from img2vec
-- [ ] Separate cpu and gpu installation and catch gpu errors
-- [ ] Argument parser
+```python
+clf = TasnifClusterer(
+    n_clusters=8,
+    embedder="clip",
+    embedder_kwargs={"model": "ViT-L-14", "pretrained": "laion2b_s32b_b82k"},
+)
+```
 
+## Custom backend
+
+Anything implementing the [`Embedder`](src/tasnif/embeddings/base.py) protocol works:
+
+```python
+import numpy as np
+from tasnif import TasnifClusterer, register_embedder
+
+class MyEncoder:
+    name = "my-encoder"
+    @property
+    def dim(self): return 128
+    @property
+    def device(self): return "cpu"
+    def embed(self, images, *, batch_size=32, show_progress=True):
+        return np.stack([extract(img) for img in images])
+
+register_embedder("my-encoder", lambda: MyEncoder())
+
+clf = TasnifClusterer(n_clusters=5, embedder="my-encoder")
+```
+
+## Building blocks
+
+All pieces are independently usable:
+
+```python
+from tasnif import (
+    discover_images, create_embedder,
+    reduce_pca, fit_kmeans, export_clusters, ClusterResult,
+)
+
+paths = discover_images("photos/")
+embedder = create_embedder("timm", model="resnet50")
+embeddings = embedder.embed([open_pil(p) for p in paths])
+reduced = reduce_pca(embeddings, n_components=16)
+fit = fit_kmeans(reduced, n_clusters=5, compute_silhouette=True)
+
+result = ClusterResult(
+    labels=fit.labels, centroids=fit.centroids, counts=fit.counts,
+    paths=tuple(paths), n_clusters=5, inertia=fit.inertia, silhouette=fit.silhouette,
+    embedder=embedder.name, pca_dim=16,
+)
+export_clusters(result, "output/")
+```
+
+## Migrating from 0.1.x
+
+The 0.1.x API (`Tasnif().read().calculate().export()`) was removed in 0.2.0.
+Replace with:
+
+```diff
+- from tasnif import Tasnif
+- c = Tasnif(num_classes=5, pca_dim=16, use_gpu=False)
+- c.read("photos/")
+- c.calculate()
+- c.export("output/")
++ from tasnif import TasnifClusterer
++ clf = TasnifClusterer(n_clusters=5, pca_dim=16, embedder_kwargs={"device": "auto"})
++ clf.fit("photos/")
++ clf.export("output/")
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for the full list of breaking changes.
 
 ## Contributing
 
-Contributions to `Tasnif` are welcome! Please fork the repository and submit a pull request with your proposed changes.
+Issues and PRs welcome. Before submitting, run:
 
-## Contributors
+```bash
+uv run ruff check . && uv run ruff format --check .
+uv run mypy
+uv run pytest
+```
 
-<a href="https://github.com/cobanov/tasnif/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=cobanov/tasnif" />
-</a>
+Pre-commit is configured - install hooks with `uv run pre-commit install`.
 
 ## License
 
-Tasnif is released under the MIT License. See the [LICENSE](LICENSE) file for more details.
+MIT - see [LICENSE](LICENSE).
