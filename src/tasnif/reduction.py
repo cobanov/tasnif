@@ -8,15 +8,17 @@ from .logging import get_logger
 _log = get_logger("reduction")
 
 
-def reduce_pca(
+def fit_pca(
     embeddings: np.ndarray,
     *,
     n_components: int = 16,
     random_state: int | None = 42,
-) -> np.ndarray:
-    """Reduce ``embeddings`` to ``n_components`` dimensions with PCA.
+) -> tuple[np.ndarray, PCA]:
+    """Fit PCA on ``embeddings`` and return the reduced matrix with the fitted model.
 
-    ``n_components`` is clamped to ``min(n_samples, n_features, n_components)``.
+    Keep the model to project new embeddings into the same space
+    (``model.transform``). ``n_components`` is clamped to
+    ``min(n_samples, n_features, n_components)``.
     """
     if embeddings.ndim != 2:
         embeddings = embeddings.reshape(embeddings.shape[0], -1)
@@ -40,5 +42,18 @@ def reduce_pca(
         effective,
         float(pca.explained_variance_ratio_.sum()),
     )
-    out: np.ndarray = reduced.astype(np.float32, copy=False)
-    return out
+    return reduced.astype(np.float32, copy=False), pca
+
+
+def reduce_pca(
+    embeddings: np.ndarray,
+    *,
+    n_components: int = 16,
+    random_state: int | None = 42,
+) -> np.ndarray:
+    """Reduce ``embeddings`` to ``n_components`` dimensions with PCA.
+
+    ``n_components`` is clamped to ``min(n_samples, n_features, n_components)``.
+    """
+    reduced, _ = fit_pca(embeddings, n_components=n_components, random_state=random_state)
+    return reduced

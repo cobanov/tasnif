@@ -72,3 +72,66 @@ def test_clusterer_without_pca(tmp_image_dir: Path, dummy_embedder) -> None:  # 
     result = clf.fit_predict(tmp_image_dir)
     assert result.pca_dim is None
     assert result.centroids.shape == (4, 32)
+
+
+def test_predict_reuses_the_fitted_pca(tmp_image_dir: Path, dummy_embedder) -> None:  # type: ignore[no-untyped-def]
+    clf = TasnifClusterer(n_clusters=4, embedder=dummy_embedder, pca_dim=8, show_progress=False)
+    clf.fit(tmp_image_dir)
+    paths = sorted(tmp_image_dir.iterdir())
+
+    assert clf.predict(paths).tolist() == clf.labels_.tolist()
+    # A single image used to fail: PCA was refitted on it, down to one component.
+    assert clf.predict([paths[5]]).tolist() == [clf.labels_[5]]
+
+
+def test_auto_n_clusters(tmp_image_dir: Path, dummy_embedder) -> None:  # type: ignore[no-untyped-def]
+    clf = TasnifClusterer(
+        n_clusters="auto", embedder=dummy_embedder, pca_dim=8, show_progress=False, random_state=0
+    )
+    result = clf.fit_predict(tmp_image_dir)
+
+    assert clf.n_clusters_ == 4
+    assert result.n_clusters == 4
+    assert clf.k_scores_ is not None
+    assert set(clf.k_scores_) == set(range(2, 8))
+
+
+def test_invalid_n_clusters() -> None:
+    with pytest.raises(ValueError, match="n_clusters"):
+        TasnifClusterer(n_clusters=0)
+    with pytest.raises(ValueError, match="n_clusters"):
+        TasnifClusterer(n_clusters="many")  # type: ignore[arg-type]
+
+
+def test_fit_skips_unreadable_images(tmp_image_dir: Path, dummy_embedder) -> None:  # type: ignore[no-untyped-def]
+    broken = tmp_image_dir / "zz_broken.jpg"
+    broken.write_bytes(b"\xff\xd8 truncated")
+    clf = TasnifClusterer(n_clusters=4, embedder=dummy_embedder, pca_dim=8, show_progress=False)
+
+    result = clf.fit_predict(tmp_image_dir)
+
+    assert result.n_samples == 8
+    assert broken not in result.paths
+    assert clf.skipped_ == (broken,)
+
+
+def test_fit_accepts_pil_images_and_exports_their_grids(
+    pil_images,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    dummy_embedder,  # type: ignore[no-untyped-def]
+) -> None:
+    clf = TasnifClusterer(n_clusters=4, embedder=dummy_embedder, pca_dim=8, show_progress=False)
+    result = clf.fit_predict(pil_images)
+    assert result.n_samples == 8
+
+    clf.predict(pil_images[:2])  # must not drop the images kept for the grids
+    clf.transform(pil_images[:1])
+    manifest = clf.export(tmp_path / "out", mode="none")
+    assert len(manifest.grid_paths) == 4
+
+
+def test_export_grids_load_from_disk(tmp_image_dir: Path, tmp_path: Path, dummy_embedder) -> None:  # type: ignore[no-untyped-def]
+    clf = TasnifClusterer(n_clusters=4, embedder=dummy_embedder, pca_dim=8, show_progress=False)
+    clf.fit(tmp_image_dir)
+    manifest = clf.export(tmp_path / "out", mode="none")
+    assert len(manifest.grid_paths) == 4

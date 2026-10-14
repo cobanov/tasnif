@@ -43,7 +43,13 @@ def export_clusters(
           clusters.csv          (path, cluster, filename)
           summary.json          (params, counts, metrics)
           embeddings.npy        (when ``embeddings`` is provided)
-          grids/cluster_0.png   (when ``write_grid`` and ``images`` provided)
+          grids/cluster_0.png   (when ``write_grid``)
+
+    Existing files are never replaced: two images with the same name (from
+    different folders, or from an earlier export with ``overwrite=True``) get a
+    numeric suffix, ``photo-1.jpg``. ``clusters.csv`` records the name each one
+    was given. Grid previews use ``images`` when given and otherwise load
+    thumbnails from ``result.paths``.
     """
     out = Path(output_dir)
     if out.exists() and any(out.iterdir()) and not overwrite:
@@ -53,17 +59,19 @@ def export_clusters(
     out.mkdir(parents=True, exist_ok=True)
 
     by_cluster = result.by_cluster()
-    files_per_cluster: dict[int, int] = {}
+    files_per_cluster = {k: len(v) for k, v in by_cluster.items()}
+    exported: dict[Path, Path] = {}
 
     if mode != "none":
         for cluster_id, paths in by_cluster.items():
             target = out / f"cluster_{cluster_id}"
             target.mkdir(parents=True, exist_ok=True)
+            taken = {child.name for child in target.iterdir()}
             for src in paths:
-                _materialize(src, target / src.name, mode)
-            files_per_cluster[cluster_id] = len(paths)
-    else:
-        files_per_cluster = {k: len(v) for k, v in by_cluster.items()}
+                name = _free_name(src.name, taken)
+                taken.add(name)
+                _materialize(src, target / name, mode)
+                exported[src] = target / name
 
     manifest_csv: Path | None = None
     if write_manifest:
@@ -72,19 +80,21 @@ def export_clusters(
             writer = csv.writer(fh)
             writer.writerow(["path", "cluster", "filename"])
             for path, label in zip(result.paths, result.labels, strict=True):
-                writer.writerow([str(path), int(label), path.name])
+                writer.writerow([str(path), int(label), exported.get(path, path).name])
 
     grid_paths: list[Path] = []
-    if write_grid and images is not None:
+    if write_grid:
         from .visualization import make_cluster_grid
 
         grid_dir = out / "grids"
         grid_dir.mkdir(parents=True, exist_ok=True)
-        images_by_path = dict(zip(result.paths, images, strict=True))
+        images_by_path = (
+            dict(zip(result.paths, images, strict=True)) if images is not None else None
+        )
         for cluster_id, paths in by_cluster.items():
-            if not paths:
+            cluster_imgs = _grid_images(paths[:grid_max_images], images_by_path, exported)
+            if not cluster_imgs:
                 continue
-            cluster_imgs = [images_by_path[p] for p in paths[:grid_max_images]]
             grid_path = make_cluster_grid(
                 cluster_imgs,
                 grid_dir / f"cluster_{cluster_id}.png",
@@ -128,9 +138,38 @@ def export_clusters(
     )
 
 
+def _free_name(name: str, taken: set[str]) -> str:
+    """Return ``name``, or ``stem-N.ext`` with the smallest ``N`` not in ``taken``."""
+    if name not in taken:
+        return name
+    path = Path(name)
+    n = 1
+    while f"{path.stem}-{n}{path.suffix}" in taken:
+        n += 1
+    return f"{path.stem}-{n}{path.suffix}"
+
+
+def _grid_images(
+    paths: Sequence[Path],
+    images_by_path: dict[Path, Image] | None,
+    exported: dict[Path, Path],
+) -> list[Image]:
+    if images_by_path is not None:
+        return [images_by_path[p] for p in paths]
+
+    from .io import load_image
+
+    loaded: list[Image] = []
+    for path in paths:
+        try:
+            # After a move the image only exists at its exported path.
+            loaded.append(load_image(exported.get(path, path), max_size=256))
+        except Exception as exc:
+            _log.warning("Leaving %s out of the grid preview: %s", path, exc)
+    return loaded
+
+
 def _materialize(src: Path, dst: Path, mode: ExportMode) -> None:
-    if dst.exists():
-        dst.unlink()
     try:
         if mode == "copy":
             shutil.copy2(src, dst)

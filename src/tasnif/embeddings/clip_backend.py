@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ..logging import get_logger
+from ._batching import iter_batches
 from ._torch_utils import resolve_device
 
 if TYPE_CHECKING:
@@ -66,36 +68,21 @@ class CLIPEmbedder:
         show_progress: bool = True,
     ) -> np.ndarray:
         torch = self._torch
-        materialized: list[Image] = list(images)
-        if not materialized:
-            return np.empty((0, self._dim), dtype=np.float32)
-
-        from tqdm.auto import tqdm
-
-        iterator: Iterable[int] = range(0, len(materialized), batch_size)
-        if show_progress:
-            iterator = tqdm(iterator, desc=f"embed[{self.name}]", unit="batch")
-
         out: list[np.ndarray] = []
         autocast = (
-            torch.autocast(device_type="cuda", dtype=torch.float16) if self._amp else _NullContext()
+            torch.autocast(device_type="cuda", dtype=torch.float16) if self._amp else nullcontext()
         )
 
         with torch.inference_mode(), autocast:
-            for start in iterator:
-                batch = materialized[start : start + batch_size]
+            for batch in iter_batches(
+                images, batch_size, desc=f"embed[{self.name}]", show_progress=show_progress
+            ):
                 tensors = torch.stack([self._preprocess(img) for img in batch]).to(self._device)
                 feats = self._model.encode_image(tensors)
                 if self._normalize:
                     feats = torch.nn.functional.normalize(feats, dim=-1)
                 out.append(feats.float().cpu().numpy())
 
+        if not out:
+            return np.empty((0, self._dim), dtype=np.float32)
         return np.concatenate(out, axis=0)
-
-
-class _NullContext:
-    def __enter__(self) -> None:
-        return None
-
-    def __exit__(self, *args: object) -> None:
-        return None

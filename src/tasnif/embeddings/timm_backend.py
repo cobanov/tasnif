@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING
+from contextlib import nullcontext
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ..logging import get_logger
+from ._batching import iter_batches
 from ._torch_utils import resolve_device
 
 if TYPE_CHECKING:
@@ -13,24 +15,32 @@ if TYPE_CHECKING:
 
 _log = get_logger("embeddings.timm")
 
+DEFAULT_MODEL = "convnext_small.fb_in22k"
+
 
 class TimmEmbedder:
     """Embed images with any ``timm`` model.
 
     Uses the model's pooled feature output (``num_classes=0`` head removed),
-    yielding an ``(N, dim)`` float32 numpy array.
+    yielding an ``(N, dim)`` float32 numpy array. ``model_kwargs`` go to
+    ``timm.create_model``, e.g. ``{"img_size": 224}`` for a ViT.
+
+    The default is ConvNeXt-S pretrained on ImageNet-22k. Its features separate
+    categories outside ImageNet-1k far better than ``resnet50``'s, which was the
+    default before 0.3.0 (see the benchmark in the README).
     """
 
     name: str
 
     def __init__(
         self,
-        model: str = "resnet50",
+        model: str = DEFAULT_MODEL,
         *,
         device: str = "auto",
         pretrained: bool = True,
         normalize: bool = True,
         amp: bool = True,
+        model_kwargs: dict[str, Any] | None = None,
     ) -> None:
         import timm
         import torch
@@ -42,12 +52,17 @@ class TimmEmbedder:
         self._amp = amp and self._device == "cuda"
 
         self._torch = torch
-        net = timm.create_model(model, pretrained=pretrained, num_classes=0)
+        net = timm.create_model(model, pretrained=pretrained, num_classes=0, **(model_kwargs or {}))
         net.train(mode=False)
         net.to(self._device)
         self._model = net
 
         cfg = resolve_data_config({}, model=self._model)
+        img_size = (model_kwargs or {}).get("img_size")
+        if img_size:
+            # The data config follows the pretrained resolution, not an override.
+            height, width = (img_size, img_size) if isinstance(img_size, int) else img_size
+            cfg["input_size"] = (cfg["input_size"][0], height, width)
         self._transform = create_transform(**cfg)
 
         with torch.inference_mode():
@@ -72,36 +87,21 @@ class TimmEmbedder:
         show_progress: bool = True,
     ) -> np.ndarray:
         torch = self._torch
-        materialized: list[Image] = list(images)
-        if not materialized:
-            return np.empty((0, self._dim), dtype=np.float32)
-
-        from tqdm.auto import tqdm
-
-        iterator: Iterable[int] = range(0, len(materialized), batch_size)
-        if show_progress:
-            iterator = tqdm(iterator, desc=f"embed[{self.name}]", unit="batch")
-
         out: list[np.ndarray] = []
         autocast = (
-            torch.autocast(device_type="cuda", dtype=torch.float16) if self._amp else _NullContext()
+            torch.autocast(device_type="cuda", dtype=torch.float16) if self._amp else nullcontext()
         )
 
         with torch.inference_mode(), autocast:
-            for start in iterator:
-                batch = materialized[start : start + batch_size]
+            for batch in iter_batches(
+                images, batch_size, desc=f"embed[{self.name}]", show_progress=show_progress
+            ):
                 tensors = torch.stack([self._transform(img) for img in batch]).to(self._device)
                 feats = self._model(tensors)
                 if self._normalize:
                     feats = torch.nn.functional.normalize(feats, dim=-1)
                 out.append(feats.float().cpu().numpy())
 
+        if not out:
+            return np.empty((0, self._dim), dtype=np.float32)
         return np.concatenate(out, axis=0)
-
-
-class _NullContext:
-    def __enter__(self) -> None:
-        return None
-
-    def __exit__(self, *args: object) -> None:
-        return None

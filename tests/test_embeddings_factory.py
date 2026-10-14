@@ -55,3 +55,29 @@ def test_clip_backend_raises_when_missing() -> None:
     except ImportError:
         with pytest.raises(BackendNotAvailableError):
             create_embedder("clip")
+
+
+def test_clip_backend_reports_the_missing_extra(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+
+    monkeypatch.setitem(sys.modules, "open_clip", None)
+    with pytest.raises(BackendNotAvailableError, match=r"tasnif\[clip\]"):
+        create_embedder("clip")
+
+
+def test_iter_batches_streams_without_materializing() -> None:
+    from PIL import Image
+
+    from tasnif.embeddings._batching import iter_batches
+
+    pulled: list[int] = []
+
+    def source():  # type: ignore[no-untyped-def]
+        for i in range(5):
+            pulled.append(i)
+            yield Image.new("RGB", (2, 2))
+
+    batches = iter_batches(source(), 2, desc="t", show_progress=False)
+    assert len(next(batches)) == 2
+    assert pulled == [0, 1]
+    assert [len(b) for b in batches] == [2, 1]
