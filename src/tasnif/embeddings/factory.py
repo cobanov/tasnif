@@ -16,7 +16,7 @@ def register_embedder(name: str, factory: _BackendFactory) -> None:
 
 
 def list_backends() -> list[str]:
-    return sorted({*_REGISTRY.keys(), "timm", "clip"})
+    return sorted({*_REGISTRY.keys(), "timm", "clip", "face"})
 
 
 def create_embedder(name: str = "timm", /, **kwargs: Any) -> Embedder:
@@ -26,6 +26,8 @@ def create_embedder(name: str = "timm", /, **kwargs: Any) -> Embedder:
 
     - ``"timm"``: any ``timm`` model (default ``resnet50``). Pass ``model="vit_base_patch16_224"`` etc.
     - ``"clip"``: open_clip / CLIP image encoder. Requires the ``[clip]`` extra.
+    - ``"face"``: a face recognition model via DeepFace (default ``Facenet512``), embedding
+      the largest face in each image. Requires the ``[face]`` extra.
 
     Names registered via :func:`register_embedder` take precedence.
     """
@@ -45,5 +47,16 @@ def create_embedder(name: str = "timm", /, **kwargs: Any) -> Embedder:
                 "CLIP backend requires the 'clip' extra. Install with: pip install 'tasnif[clip]'"
             ) from exc
         return CLIPEmbedder(**kwargs)
+
+    if name == "face":
+        try:
+            import deepface  # noqa: F401
+        except ImportError as exc:
+            raise BackendNotAvailableError(
+                "Face backend requires the 'face' extra. Install with: pip install 'tasnif[face]'"
+            ) from exc
+        from .face_backend import FaceEmbedder
+
+        return FaceEmbedder(**kwargs)
 
     raise ValueError(f"Unknown embedder backend: {name!r}. Available: {list_backends()}")

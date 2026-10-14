@@ -61,12 +61,14 @@ def cluster(
         int, typer.Option("--clusters", "-k", min=2, help="Number of clusters.")
     ] = 5,
     embedder: Annotated[
-        str, typer.Option("--embedder", "-e", help="Backend: timm or clip.")
+        str, typer.Option("--embedder", "-e", help="Backend: timm, clip or face.")
     ] = "timm",
     model: Annotated[
         str | None,
         typer.Option(
-            "--model", "-m", help="Model name for the chosen backend (e.g. resnet50, ViT-B-32)."
+            "--model",
+            "-m",
+            help="Model name for the chosen backend (e.g. resnet50, ViT-B-32, Facenet512).",
         ),
     ] = None,
     pca_dim: Annotated[int, typer.Option("--pca", help="PCA dim (0 disables PCA).")] = 16,
