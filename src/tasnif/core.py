@@ -2,21 +2,22 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 from typing_extensions import Self
 
-from .clustering import KMeansFit, fit_kmeans, predict_kmeans
+from .clustering import KMeansFit, choose_n_clusters, fit_kmeans, predict_kmeans
 from .embeddings import Embedder, create_embedder
-from .exceptions import NotFittedError
-from .io import PathLike, discover_images, iter_images, load_image
+from .exceptions import NoImagesFoundError, NotFittedError
+from .io import ImageStream, PathLike, discover_images
 from .logging import get_logger
-from .reduction import reduce_pca
+from .reduction import fit_pca
 from .types import ClusterResult, ExportManifest
 
 if TYPE_CHECKING:
     from PIL.Image import Image
+    from sklearn.decomposition import PCA
 
     from .export import ExportMode
 
@@ -47,11 +48,20 @@ class TasnifClusterer:
     Pass ``embedder="clip"`` (requires ``tasnif[clip]``) or any registered
     backend name. Pass a pre-built :class:`Embedder` to ``embedder`` to use a
     custom model.
+
+    ``n_clusters="auto"`` picks the number of clusters with the best silhouette
+    score between ``k_min`` and ``k_max``; the chosen value is ``n_clusters_``.
+
+    Images given as paths are streamed: they are decoded a few at a time on
+    ``workers`` threads, scaled so their shorter side is at most
+    ``max_image_size`` (``None`` keeps full resolution), and dropped once
+    embedded. Unreadable files are skipped; ``skipped_`` lists the ones the
+    last ``fit``, ``predict`` or ``transform`` call left out.
     """
 
     def __init__(
         self,
-        n_clusters: int,
+        n_clusters: int | Literal["auto"],
         *,
         embedder: str | Embedder = "timm",
         embedder_kwargs: dict[str, object] | None = None,
@@ -60,8 +70,18 @@ class TasnifClusterer:
         random_state: int | None = 42,
         compute_silhouette: bool = False,
         show_progress: bool = True,
+        k_min: int = 2,
+        k_max: int = 30,
+        max_image_size: int | None = 512,
+        workers: int | None = None,
     ) -> None:
+        if n_clusters != "auto" and (not isinstance(n_clusters, int) or n_clusters < 1):
+            raise ValueError(f"n_clusters must be a positive int or 'auto', got {n_clusters!r}")
         self.n_clusters = n_clusters
+        self.k_min = k_min
+        self.k_max = k_max
+        self.max_image_size = max_image_size
+        self.workers = workers
         self.pca_dim = pca_dim
         self.batch_size = batch_size
         self.random_state = random_state
@@ -76,9 +96,12 @@ class TasnifClusterer:
 
         self._embeddings: np.ndarray | None = None
         self._reduced: np.ndarray | None = None
+        self._pca: PCA | None = None
         self._paths: tuple[Path, ...] | None = None
         self._fit: KMeansFit | None = None
         self._images_cache: list[Image] | None = None
+        self._k_scores: dict[int, float] | None = None
+        self.skipped_: tuple[Path, ...] = ()
 
     # ------------------------------------------------------------------ props
     @property
@@ -94,7 +117,7 @@ class TasnifClusterer:
             centroids=self._fit.centroids,
             counts=self._fit.counts,
             paths=self._paths,
-            n_clusters=self.n_clusters,
+            n_clusters=len(self._fit.centroids),
             inertia=self._fit.inertia,
             silhouette=self._fit.silhouette,
             embedder=self._embedder.name,
@@ -111,25 +134,42 @@ class TasnifClusterer:
     def labels_(self) -> np.ndarray:
         return self.result_.labels
 
+    @property
+    def n_clusters_(self) -> int:
+        """The number of clusters used, which ``n_clusters="auto"`` chooses during ``fit``."""
+        return self.result_.n_clusters
+
+    @property
+    def k_scores_(self) -> dict[int, float] | None:
+        """Silhouette score per candidate ``k`` when ``n_clusters="auto"``, else ``None``."""
+        self._require_fitted()
+        return self._k_scores
+
     # ------------------------------------------------------------------- API
     def fit(self, images: ImagesInput) -> Self:
-        paths, pil_images = _resolve_input(images)
+        paths, embeddings, pil_images = self._embed(images)
         self._paths = tuple(paths)
+        self._embeddings = embeddings
         self._images_cache = pil_images
 
-        self._embeddings = self._embedder.embed(
-            pil_images, batch_size=self.batch_size, show_progress=self.show_progress
-        )
-        features = self._embeddings
+        features = embeddings
+        self._pca = None
         if self.pca_dim:
-            self._reduced = reduce_pca(
+            self._reduced, self._pca = fit_pca(
                 features, n_components=self.pca_dim, random_state=self.random_state
             )
             features = self._reduced
 
+        n_clusters = self.n_clusters
+        self._k_scores = None
+        if n_clusters == "auto":
+            n_clusters, self._k_scores = choose_n_clusters(
+                features, k_min=self.k_min, k_max=self.k_max, random_state=self.random_state
+            )
+
         self._fit = fit_kmeans(
             features,
-            n_clusters=self.n_clusters,
+            n_clusters=n_clusters,
             random_state=self.random_state,
             compute_silhouette=self.compute_silhouette,
         )
@@ -140,30 +180,22 @@ class TasnifClusterer:
         return self.result_
 
     def predict(self, images: ImagesInput) -> np.ndarray:
-        """Assign new images to existing clusters.
+        """Assign new images to the fitted clusters.
 
-        Reuses the fitted PCA projection and KMeans centroids. Note that since
-        scikit-learn's ``PCA`` is not re-applied here (we don't store it as a
-        public artifact), we project new embeddings via a fresh PCA fit-only
-        when ``pca_dim`` is set - for predict-on-new-data you may prefer
-        ``fit_predict`` on the combined set or ``transform`` for raw embeddings.
+        New embeddings go through the PCA projection fitted in ``fit`` before
+        the nearest centroid is looked up. Unreadable files are skipped and
+        listed in ``skipped_``; the result has one label per remaining image.
         """
         self._require_fitted()
         assert self._fit is not None
-        _, pil_images = _resolve_input(images)
-        embs = self._embedder.embed(
-            pil_images, batch_size=self.batch_size, show_progress=self.show_progress
-        )
-        if self.pca_dim:
-            embs = reduce_pca(embs, n_components=self.pca_dim, random_state=self.random_state)
+        _, embs, _ = self._embed(images)
+        if self._pca is not None:
+            embs = self._pca.transform(embs).astype(np.float32, copy=False)
         return predict_kmeans(self._fit.model, embs)
 
     def transform(self, images: ImagesInput) -> np.ndarray:
         """Embed images with the configured backend (no clustering)."""
-        _, pil_images = _resolve_input(images)
-        return self._embedder.embed(
-            pil_images, batch_size=self.batch_size, show_progress=self.show_progress
-        )
+        return self._embed(images)[1]
 
     def export(
         self,
@@ -192,6 +224,33 @@ class TasnifClusterer:
         )
 
     # ---------------------------------------------------------------- helpers
+    def _embed(self, images: ImagesInput) -> tuple[list[Path], np.ndarray, list[Image] | None]:
+        """Embed the input.
+
+        Returns the paths that were embedded, their rows, and the images
+        themselves when they were given as PIL images (``None`` for paths).
+        """
+        paths, source = _resolve_input(
+            images, max_image_size=self.max_image_size, workers=self.workers
+        )
+        embeddings = self._embedder.embed(
+            source, batch_size=self.batch_size, show_progress=self.show_progress
+        )
+        self.skipped_ = ()
+        if isinstance(source, ImageStream):
+            paths = source.loaded
+            self.skipped_ = tuple(source.skipped)
+            if source.skipped:
+                _log.warning("Skipped %d unreadable image(s)", len(source.skipped))
+            if not paths:
+                raise NoImagesFoundError(f"None of the {len(source)} image(s) could be read.")
+        if len(embeddings) != len(paths):
+            raise RuntimeError(
+                f"Embedder {self._embedder.name!r} returned {len(embeddings)} rows "
+                f"for {len(paths)} images"
+            )
+        return paths, embeddings, None if isinstance(source, ImageStream) else source
+
     def _require_fitted(self) -> None:
         if self._fit is None:
             raise NotFittedError(
@@ -200,28 +259,32 @@ class TasnifClusterer:
 
 
 # --------------------------------------------------------------------- input
-def _resolve_input(images: ImagesInput) -> tuple[list[Path], list[Image]]:
-    """Accept a directory path, a list of paths, or a list of PIL images."""
+def _resolve_input(
+    images: ImagesInput, *, max_image_size: int | None = None, workers: int | None = None
+) -> tuple[list[Path], ImageStream | list[Image]]:
+    """Accept a directory path, a list of paths, or a list of PIL images.
+
+    Paths come back as a lazy :class:`ImageStream`; PIL images as they are.
+    """
     from PIL.Image import Image as PILImage
 
     if isinstance(images, (str, Path)):
         paths = discover_images(images)
-        return paths, list(iter_images(paths))
+        return paths, ImageStream(paths, max_size=max_image_size, workers=workers)
 
     materialized = list(images) if not isinstance(images, list) else images
     if not materialized:
-        from .exceptions import NoImagesFoundError
-
         raise NoImagesFoundError("Empty image input.")
 
     first = materialized[0]
     if isinstance(first, PILImage):
-        return ([Path(f"<pil:{i}>") for i in range(len(materialized))], list(materialized))
+        pil_images = cast("list[Image]", materialized)
+        return [Path(f"<pil:{i}>") for i in range(len(pil_images))], pil_images
 
     if isinstance(first, (str, Path)):
         path_inputs = cast("Sequence[PathLike]", materialized)
         paths = [Path(p) for p in path_inputs]
-        return paths, [load_image(p) for p in paths]
+        return paths, ImageStream(paths, max_size=max_image_size, workers=workers)
 
     raise TypeError(f"Unsupported image input element: {type(first).__name__}")
 
@@ -230,7 +293,7 @@ def cluster_directory(
     directory: PathLike,
     output_dir: PathLike,
     *,
-    n_clusters: int,
+    n_clusters: int | Literal["auto"],
     embedder: str | Embedder = "timm",
     embedder_kwargs: dict[str, object] | None = None,
     pca_dim: int | None = 16,

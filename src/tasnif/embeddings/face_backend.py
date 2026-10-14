@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ..logging import get_logger
+from ._batching import iter_batches
 
 if TYPE_CHECKING:
     from PIL.Image import Image
@@ -70,21 +71,12 @@ class FaceEmbedder:
         batch_size: int = 32,
         show_progress: bool = True,
     ) -> np.ndarray:
-        materialized: list[Image] = list(images)
-        out = np.empty((len(materialized), self._dim), dtype=np.float32)
-        if not materialized:
-            return out
-
-        from tqdm.auto import tqdm
-
-        iterator: Iterable[int] = range(0, len(materialized), batch_size)
-        if show_progress:
-            iterator = tqdm(iterator, desc=f"embed[{self.name}]", unit="batch")
-
-        for start in iterator:
-            batch = [_to_bgr(img) for img in materialized[start : start + batch_size]]
+        rows: list[np.ndarray] = []
+        for batch in iter_batches(
+            images, batch_size, desc=f"embed[{self.name}]", show_progress=show_progress
+        ):
             results: list[Any] = self._deepface.represent(
-                img_path=batch,
+                img_path=[_to_bgr(img) for img in batch],
                 model_name=self._model,
                 detector_backend=self._detector,
                 enforce_detection=False,
@@ -94,11 +86,11 @@ class FaceEmbedder:
             # A single image comes back as its list of faces, not wrapped in a list.
             if results and isinstance(results[0], dict):
                 results = [results]
-            for offset, faces in enumerate(results):
-                out[start + offset] = np.asarray(faces[0]["embedding"], dtype=np.float32).reshape(
-                    -1
-                )
+            rows.extend(
+                np.asarray(faces[0]["embedding"], dtype=np.float32).reshape(-1) for faces in results
+            )
 
+        out = np.stack(rows) if rows else np.empty((0, self._dim), dtype=np.float32)
         if self._normalize:
             norms = np.linalg.norm(out, axis=1, keepdims=True)
             norms[norms == 0] = 1.0

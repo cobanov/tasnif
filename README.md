@@ -14,18 +14,21 @@
 </p>
 
 `tasnif` turns a folder of images into clusters you can browse on disk - no
-labels required. It uses modern pretrained vision backbones (`timm` by default,
-optionally CLIP via `open_clip`, or a face recognition model via `deepface`),
-reduces the embedding with PCA, and runs K-Means on top.
+labels required. It embeds each image with a pretrained vision backbone
+(ConvNeXt pretrained on ImageNet-22k by default, any `timm` model, CLIP via
+`open_clip`, or a face recognition model via `deepface`), reduces the
+embeddings with PCA, and runs K-Means on top.
 
 ## Highlights
 
-- **Modern backbones** - any [`timm`](https://github.com/huggingface/pytorch-image-models) model (ResNet, ConvNeXt, ViT, DINOv2, ...) or [CLIP](https://github.com/mlfoundations/open_clip) via the `[clip]` extra.
+- **Modern backbones** - any [`timm`](https://github.com/huggingface/pytorch-image-models) model (ConvNeXt by default, DINOv2, ViT, ResNet, ...) or [CLIP](https://github.com/mlfoundations/open_clip) via the `[clip]` extra, picked by [benchmark](#use-a-different-model).
 - **Group photos by person** - the `face` backend embeds the face in each image with [DeepFace](https://github.com/serengil/deepface) (`[face]` extra).
+- **Picks the number of clusters** for you with `n_clusters="auto"` (best silhouette score).
+- **Any folder size** - images are streamed and decoded a few at a time at reduced size; unreadable files are skipped, phone photos are turned upright from their EXIF orientation.
 - **GPU / MPS / CPU** with automatic device detection.
 - **scikit-learn-style API**: `fit`, `predict`, `fit_predict`, `transform`.
 - **Rich export**: per-cluster folders, CSV manifest, JSON summary, preview grids, raw embeddings.
-- **Multiple materialization modes**: `copy`, `symlink`, `move`, or `none` (metadata only).
+- **Multiple materialization modes**: `copy`, `symlink`, `move`, or `none` (metadata only). Existing files are never replaced; clashing names get a numeric suffix.
 - **First-class CLI** powered by [Typer](https://typer.tiangolo.com/).
 - **Pluggable embedders** - register your own backend.
 - **Deterministic** with a `random_state` seed.
@@ -56,9 +59,11 @@ uv run pytest
 ```python
 from tasnif import TasnifClusterer
 
-clf = TasnifClusterer(n_clusters=5, embedder="timm", pca_dim=16)
+clf = TasnifClusterer(n_clusters="auto")  # or n_clusters=5
 clf.fit("photos/")
 result = clf.result_
+print(clf.n_clusters_)          # the k that was chosen
+print(clf.skipped_)             # files that could not be read
 
 # Inspect without exporting
 print(result.counts)            # e.g. [42, 31, 28, 19, 7]
@@ -81,8 +86,11 @@ cluster_directory("photos/", "output/", n_clusters=5, mode="symlink")
 ## CLI
 
 ```bash
-# Cluster a directory with the default ResNet-50 (timm) backbone
+# Cluster a directory with the default ConvNeXt backbone
 tasnif cluster photos/ -k 5 -o output/
+
+# Let tasnif pick the number of clusters
+tasnif cluster photos/ -k auto -o output/
 
 # Use CLIP and copy via symlink (fast, non-destructive)
 tasnif cluster photos/ -k 8 --embedder clip --model ViT-B-32 --mode symlink
@@ -101,15 +109,36 @@ Run `tasnif --help` to see all options.
 
 ## Use a different model
 
-Default is `timm:resnet50`. Pass any `timm` model name:
+The default is `timm:convnext_small.fb_in22k`, ConvNeXt-S pretrained on
+ImageNet-22k. Pass any `timm` model name:
 
 ```python
 clf = TasnifClusterer(
     n_clusters=8,
     embedder="timm",
-    embedder_kwargs={"model": "vit_base_patch14_dinov2.lvd142m", "device": "cuda"},
+    embedder_kwargs={"model": "convnext_tiny.fb_in22k", "device": "cuda"},
 )
 ```
+
+How backbones compare: K-Means (k=10, PCA 16) on 600 images from each of five
+10-class sets, NMI averaged over three seeds (1.0 means the clusters match the
+true classes exactly), and images per second on an Apple M4 Pro GPU:
+
+| Backbone | Imagenette | Imagewoof | Flowers | EuroSAT | DTD | Mean | img/s |
+|---|---|---|---|---|---|---|---|
+| **`convnext_small.fb_in22k` (default)** | 0.99 | 0.86 | 0.99 | 0.68 | 0.65 | **0.84** | 107 |
+| `convnext_tiny.fb_in22k` | 0.99 | 0.83 | 0.97 | 0.71 | 0.60 | 0.82 | 181 |
+| DINOv2 ViT-S/14 reg4 at 224 px | 0.90 | 0.84 | 1.00 | 0.62 | 0.64 | 0.80 | 163 |
+| CLIP ViT-B-16 | 0.99 | 0.70 | 0.95 | 0.68 | 0.61 | 0.79 | 79 |
+| CLIP ViT-B-32 (`clip` default) | 0.96 | 0.65 | 0.93 | 0.70 | 0.61 | 0.77 | 213 |
+| `resnet50` (default before 0.3.0) | 0.91 | 0.82 | 0.65 | 0.61 | 0.55 | 0.71 | 193 |
+
+Imagewoof is ten dog breeds, Flowers ten species from Oxford Flowers-102,
+EuroSAT satellite tiles and DTD textures. ResNet-50 learned the 1,000
+ImageNet-1k classes and falls behind on anything else; the ImageNet-22k
+ConvNeXt holds up across all five. With `n_clusters="auto"` it found exactly
+10 clusters on three of the five sets and 11 on a fourth.
+`convnext_tiny.fb_in22k` is as fast as ResNet-50 if speed matters more.
 
 CLIP:
 
@@ -140,6 +169,16 @@ any [DeepFace](https://github.com/serengil/deepface) model (`Facenet512`,
 TensorFlow is not installed and picks its own device, so `device` is ignored.
 The models it wraps carry their own licenses; check them before production use.
 
+## Large folders
+
+Images given as a folder or a list of paths are never all in memory at once.
+`TasnifClusterer` decodes them a few ahead on `workers` threads (default: up to
+8), scales each so its shorter side is at most `max_image_size` (512 px by
+default; JPEGs are decoded at reduced scale directly, so a 12 MP photo takes
+about 1 MB instead of 36 MB) and drops it once embedded. Grid previews load
+their thumbnails from disk at export time. Pass `max_image_size=None` (CLI:
+`--max-size 0`) to keep full resolution.
+
 ## Custom backend
 
 Anything implementing the [`Embedder`](src/tasnif/embeddings/base.py) protocol works:
@@ -168,13 +207,15 @@ All pieces are independently usable:
 
 ```python
 from tasnif import (
-    discover_images, create_embedder,
+    discover_images, create_embedder, ImageStream,
     reduce_pca, fit_kmeans, export_clusters, ClusterResult,
 )
 
 paths = discover_images("photos/")
-embedder = create_embedder("timm", model="resnet50")
-embeddings = embedder.embed([open_pil(p) for p in paths])
+embedder = create_embedder("timm")
+stream = ImageStream(paths, max_size=512)  # decodes lazily, skips unreadable files
+embeddings = embedder.embed(stream)
+paths = stream.loaded
 reduced = reduce_pca(embeddings, n_components=16)
 fit = fit_kmeans(reduced, n_clusters=5, compute_silhouette=True)
 

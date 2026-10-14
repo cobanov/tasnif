@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from tasnif.export import export_clusters
+from tasnif.export import ExportMode, export_clusters
 from tasnif.types import ClusterResult
 
 
@@ -110,3 +110,59 @@ def test_export_overwrite_flag(tmp_image_dir: Path, tmp_path: Path) -> None:
     (out / "existing").write_text("x")
     export_clusters(result, out, mode="copy", write_grid=False, overwrite=True)
     assert (out / "cluster_0").is_dir()
+
+
+def _same_name_result(tmp_path: Path) -> ClusterResult:
+    paths = []
+    for folder, color in [("2023", "red"), ("2024", "blue")]:
+        (tmp_path / "src" / folder).mkdir(parents=True)
+        path = tmp_path / "src" / folder / "IMG_0001.jpg"
+        Image.new("RGB", (8, 8), color).save(path)
+        paths.append(path)
+    return ClusterResult(
+        labels=np.zeros(2, dtype=np.int32),
+        centroids=np.zeros((1, 4), dtype=np.float32),
+        counts=np.array([2]),
+        paths=tuple(paths),
+        n_clusters=1,
+    )
+
+
+def test_move_keeps_images_with_the_same_name(tmp_path: Path) -> None:
+    result = _same_name_result(tmp_path)
+    out = tmp_path / "out"
+
+    export_clusters(result, out, mode="move", write_grid=False)
+
+    with (out / "clusters.csv").open() as fh:
+        names = [row["filename"] for row in csv.DictReader(fh)]
+    assert names == ["IMG_0001.jpg", "IMG_0001-1.jpg"]
+    # Both photos survived the move, and they are the two different ones.
+    reds = [Image.open(out / "cluster_0" / n).getpixel((0, 0))[0] > 128 for n in names]
+    assert reds == [True, False]
+    assert not any(p.exists() for p in result.paths)
+
+
+def test_overwrite_never_replaces_existing_files(tmp_path: Path) -> None:
+    result = _same_name_result(tmp_path)
+    out = tmp_path / "out"
+    (out / "cluster_0").mkdir(parents=True)
+    (out / "cluster_0" / "IMG_0001.jpg").write_text("from an earlier run")
+
+    export_clusters(result, out, mode="copy", write_grid=False, overwrite=True)
+
+    assert (out / "cluster_0" / "IMG_0001.jpg").read_text() == "from an earlier run"
+    assert sorted(p.name for p in (out / "cluster_0").iterdir()) == [
+        "IMG_0001-1.jpg",
+        "IMG_0001-2.jpg",
+        "IMG_0001.jpg",
+    ]
+
+
+@pytest.mark.parametrize("mode", ["none", "copy", "move"])
+def test_grids_load_from_disk_without_images(
+    tmp_image_dir: Path, tmp_path: Path, mode: ExportMode
+) -> None:
+    result = _make_result(tmp_image_dir, n_clusters=2)
+    manifest = export_clusters(result, tmp_path / "out", mode=mode)
+    assert len(manifest.grid_paths) == 2

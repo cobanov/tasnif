@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
+from collections import deque
 from collections.abc import Iterable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -66,15 +69,83 @@ def discover_images(
     return found
 
 
-def load_image(path: PathLike) -> Image:
-    """Open ``path`` as an RGB ``PIL.Image``. Closes file handles eagerly."""
+def load_image(path: PathLike, *, max_size: int | None = None) -> Image:
+    """Open ``path`` as an upright RGB ``PIL.Image``. Closes file handles eagerly.
+
+    The EXIF orientation is applied, so phone photos are not sideways. With
+    ``max_size``, an image whose shorter side is larger is scaled down to it; a
+    JPEG is decoded at a reduced scale directly, which is faster and keeps a
+    12 MP photo at about 1 MB in memory instead of 36 MB.
+    """
     from PIL import Image as PILImage
+    from PIL import ImageOps
 
     with PILImage.open(path) as img:
-        return img.convert("RGB")
+        if max_size:
+            img.draft("RGB", (max_size, max_size))
+        upright = ImageOps.exif_transpose(img)
+        rgb = upright.convert("RGB")
+
+    if max_size and min(rgb.size) > max_size:
+        scale = max_size / min(rgb.size)
+        size = (max(1, round(rgb.width * scale)), max(1, round(rgb.height * scale)))
+        rgb = rgb.resize(size, PILImage.Resampling.BICUBIC, reducing_gap=3.0)
+    return rgb
 
 
-def iter_images(paths: Iterable[PathLike]) -> Iterator[Image]:
+def iter_images(paths: Iterable[PathLike], *, max_size: int | None = None) -> Iterator[Image]:
     """Yield RGB ``PIL.Image`` objects lazily - does not retain the full list."""
     for p in paths:
-        yield load_image(p)
+        yield load_image(p, max_size=max_size)
+
+
+class ImageStream:
+    """Load images lazily and in order, decoding a few ahead on a thread pool.
+
+    Only the images in flight are held in memory, so a folder of any size can be
+    embedded. A file that cannot be read is skipped with a warning instead of
+    stopping the run: after iterating, :attr:`loaded` lists the paths that were
+    yielded, in order, and :attr:`skipped` the ones that were not.
+    """
+
+    def __init__(
+        self,
+        paths: Iterable[PathLike],
+        *,
+        max_size: int | None = None,
+        workers: int | None = None,
+    ) -> None:
+        self.paths = [Path(p) for p in paths]
+        self.max_size = max_size
+        self.workers = workers or min(8, os.cpu_count() or 1)
+        self.loaded: list[Path] = []
+        self.skipped: list[Path] = []
+
+    def __len__(self) -> int:
+        return len(self.paths)
+
+    def __iter__(self) -> Iterator[Image]:
+        self.loaded = []
+        self.skipped = []
+        remaining = iter(self.paths)
+        with ThreadPoolExecutor(self.workers, thread_name_prefix="tasnif-load") as pool:
+            pending: deque[tuple[Path, Future[Image]]] = deque()
+
+            def submit_next() -> None:
+                path = next(remaining, None)
+                if path is not None:
+                    pending.append((path, pool.submit(load_image, path, max_size=self.max_size)))
+
+            for _ in range(self.workers * 2):
+                submit_next()
+            while pending:
+                path, future = pending.popleft()
+                submit_next()
+                try:
+                    image = future.result()
+                except Exception as exc:
+                    _log.warning("Skipping unreadable image %s: %s", path, exc)
+                    self.skipped.append(path)
+                    continue
+                self.loaded.append(path)
+                yield image

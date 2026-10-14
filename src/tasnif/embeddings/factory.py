@@ -24,7 +24,7 @@ def create_embedder(name: str = "timm", /, **kwargs: Any) -> Embedder:
 
     Built-in names:
 
-    - ``"timm"``: any ``timm`` model (default ``resnet50``). Pass ``model="vit_base_patch16_224"`` etc.
+    - ``"timm"``: any ``timm`` model (default ``convnext_small.fb_in22k``). Pass ``model="resnet50"`` etc.
     - ``"clip"``: open_clip / CLIP image encoder. Requires the ``[clip]`` extra.
     - ``"face"``: a face recognition model via DeepFace (default ``Facenet512``), embedding
       the largest face in each image. Requires the ``[face]`` extra.
@@ -41,11 +41,13 @@ def create_embedder(name: str = "timm", /, **kwargs: Any) -> Embedder:
 
     if name == "clip":
         try:
-            from .clip_backend import CLIPEmbedder
+            import open_clip  # noqa: F401
         except ImportError as exc:
             raise BackendNotAvailableError(
                 "CLIP backend requires the 'clip' extra. Install with: pip install 'tasnif[clip]'"
             ) from exc
+        from .clip_backend import CLIPEmbedder
+
         return CLIPEmbedder(**kwargs)
 
     if name == "face":

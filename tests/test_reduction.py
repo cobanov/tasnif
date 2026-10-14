@@ -32,3 +32,12 @@ def test_reduce_pca_is_deterministic_with_seed() -> None:
     a = reduce_pca(embs, n_components=8, random_state=7)
     b = reduce_pca(embs, n_components=8, random_state=7)
     np.testing.assert_array_equal(a, b)
+
+
+def test_fit_pca_returns_a_model_that_projects_new_data() -> None:
+    from tasnif.reduction import fit_pca
+
+    rng = np.random.default_rng(0)
+    data = rng.normal(size=(50, 32)).astype(np.float32)
+    reduced, model = fit_pca(data, n_components=8)
+    np.testing.assert_allclose(model.transform(data[:3]), reduced[:3], rtol=1e-4, atol=1e-4)

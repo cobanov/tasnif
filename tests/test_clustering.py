@@ -42,3 +42,18 @@ def test_fit_kmeans_deterministic(fake_embeddings: np.ndarray) -> None:
     a = fit_kmeans(fake_embeddings, n_clusters=4, random_state=1)
     b = fit_kmeans(fake_embeddings, n_clusters=4, random_state=1)
     np.testing.assert_array_equal(a.labels, b.labels)
+
+
+def test_choose_n_clusters_finds_the_planted_k(fake_embeddings: np.ndarray) -> None:
+    from tasnif.clustering import choose_n_clusters
+
+    best, scores = choose_n_clusters(fake_embeddings, k_max=10)
+    assert best == 4
+    assert set(scores) == set(range(2, 11))
+
+
+def test_choose_n_clusters_needs_enough_samples() -> None:
+    from tasnif.clustering import choose_n_clusters
+
+    with pytest.raises(ValueError, match="at least"):
+        choose_n_clusters(np.zeros((2, 4), dtype=np.float32))

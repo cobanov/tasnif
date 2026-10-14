@@ -51,6 +51,12 @@ def main(
         configure_logging(level="INFO")
 
 
+def _parse_clusters(value: str) -> str:
+    if value == "auto" or (value.isdigit() and int(value) >= 2):
+        return value
+    raise typer.BadParameter("must be 'auto' or an integer >= 2")
+
+
 @app.command()
 def cluster(
     source: Annotated[Path, typer.Argument(exists=True, help="Directory of images to cluster.")],
@@ -58,8 +64,14 @@ def cluster(
         "./tasnif_out"
     ),
     n_clusters: Annotated[
-        int, typer.Option("--clusters", "-k", min=2, help="Number of clusters.")
-    ] = 5,
+        str,
+        typer.Option(
+            "--clusters",
+            "-k",
+            callback=_parse_clusters,
+            help="Number of clusters, or 'auto' to pick it by silhouette score.",
+        ),
+    ] = "5",
     embedder: Annotated[
         str, typer.Option("--embedder", "-e", help="Backend: timm, clip or face.")
     ] = "timm",
@@ -68,11 +80,17 @@ def cluster(
         typer.Option(
             "--model",
             "-m",
-            help="Model name for the chosen backend (e.g. resnet50, ViT-B-32, Facenet512).",
+            help="Model for the chosen backend (e.g. resnet50, ViT-B-32, Facenet512).",
         ),
     ] = None,
     pca_dim: Annotated[int, typer.Option("--pca", help="PCA dim (0 disables PCA).")] = 16,
     batch_size: Annotated[int, typer.Option("--batch-size", "-b", min=1)] = 32,
+    max_size: Annotated[
+        int,
+        typer.Option(
+            "--max-size", min=0, help="Load images at most this size (shorter side); 0 = full."
+        ),
+    ] = 512,
     mode: Annotated[str, typer.Option("--mode", help="copy | symlink | move | none")] = "copy",
     device: Annotated[str, typer.Option("--device", help="auto | cpu | cuda | mps")] = "auto",
     random_state: Annotated[int, typer.Option("--seed")] = 42,
@@ -93,13 +111,14 @@ def cluster(
         embedder_kwargs["model"] = model
 
     clf = TasnifClusterer(
-        n_clusters=n_clusters,
+        n_clusters="auto" if n_clusters == "auto" else int(n_clusters),
         embedder=embedder,
         embedder_kwargs=embedder_kwargs,
         pca_dim=pca_dim if pca_dim > 0 else None,
         batch_size=batch_size,
         random_state=random_state,
         compute_silhouette=silhouette,
+        max_image_size=max_size or None,
     )
     clf.fit(source)
     manifest = clf.export(
@@ -110,6 +129,10 @@ def cluster(
         overwrite=overwrite,
     )
     typer.echo(f"\n✓ Clustered {manifest.n_files} images into {manifest.n_clusters} clusters")
+    if n_clusters == "auto":
+        typer.echo(f"  k={clf.n_clusters_} chosen by silhouette score")
+    if clf.skipped_:
+        typer.echo(f"  Skipped {len(clf.skipped_)} unreadable image(s)")
     typer.echo(f"  Output: {manifest.output_dir}")
     if manifest.manifest_csv:
         typer.echo(f"  Manifest: {manifest.manifest_csv}")
@@ -123,20 +146,22 @@ def embed(
     model: Annotated[str | None, typer.Option("--model", "-m")] = None,
     batch_size: Annotated[int, typer.Option("--batch-size", "-b", min=1)] = 32,
     device: Annotated[str, typer.Option("--device")] = "auto",
+    max_size: Annotated[int, typer.Option("--max-size", min=0)] = 512,
 ) -> None:
     """Compute embeddings for a directory and save them as .npy + .json metadata."""
     import numpy as np
 
     from .embeddings import create_embedder
-    from .io import discover_images, iter_images
+    from .io import ImageStream, discover_images
 
     kwargs: dict[str, object] = {"device": device}
     if model:
         kwargs["model"] = model
     backend = create_embedder(embedder, **kwargs)
 
-    paths = discover_images(source)
-    embs = backend.embed(list(iter_images(paths)), batch_size=batch_size)
+    stream = ImageStream(discover_images(source), max_size=max_size or None)
+    embs = backend.embed(stream, batch_size=batch_size)
+    paths = stream.loaded
 
     output.parent.mkdir(parents=True, exist_ok=True)
     np.save(output, embs)
@@ -148,6 +173,7 @@ def embed(
                 "dim": backend.dim,
                 "n_samples": int(embs.shape[0]),
                 "paths": [str(p) for p in paths],
+                "skipped": [str(p) for p in stream.skipped],
             },
             indent=2,
         ),

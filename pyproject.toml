@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tasnif"
-version = "0.2.0"
+version = "0.3.0"
 description = "Unsupervised image clustering with modern deep embeddings (timm, CLIP, faces), PCA and K-Means."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -31,6 +31,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Image Processing",
     "Typing :: Typed",
@@ -51,12 +52,10 @@ dependencies = [
 cli = ["typer>=0.12"]
 clip = ["open-clip-torch>=2.24"]
 face = ["deepface>=0.0.102"]
-umap = ["umap-learn>=0.5"]
 all = [
     "tasnif[cli]",
     "tasnif[clip]",
     "tasnif[face]",
-    "tasnif[umap]",
 ]
 dev = [
     "tasnif[cli,clip]",
@@ -95,6 +94,8 @@ include = [
 line-length = 100
 target-version = "py310"
 src = ["src", "tests"]
+# README examples keep their hand-aligned comments.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = [
@@ -145,8 +146,6 @@ module = [
     "open_clip.*",
     "deepface",
     "deepface.*",
-    "umap",
-    "umap.*",
     "matplotlib",
     "matplotlib.*",
     "scipy",
