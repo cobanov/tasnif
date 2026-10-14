@@ -15,12 +15,13 @@
 
 `tasnif` turns a folder of images into clusters you can browse on disk - no
 labels required. It uses modern pretrained vision backbones (`timm` by default,
-optionally CLIP via `open_clip`), reduces the embedding with PCA, and runs
-K-Means on top.
+optionally CLIP via `open_clip`, or a face recognition model via `deepface`),
+reduces the embedding with PCA, and runs K-Means on top.
 
 ## Highlights
 
 - **Modern backbones** - any [`timm`](https://github.com/huggingface/pytorch-image-models) model (ResNet, ConvNeXt, ViT, DINOv2, ...) or [CLIP](https://github.com/mlfoundations/open_clip) via the `[clip]` extra.
+- **Group photos by person** - the `face` backend embeds the face in each image with [DeepFace](https://github.com/serengil/deepface) (`[face]` extra).
 - **GPU / MPS / CPU** with automatic device detection.
 - **scikit-learn-style API**: `fit`, `predict`, `fit_predict`, `transform`.
 - **Rich export**: per-cluster folders, CSV manifest, JSON summary, preview grids, raw embeddings.
@@ -37,6 +38,7 @@ K-Means on top.
 pip install tasnif                # core
 pip install "tasnif[cli]"         # core + CLI
 pip install "tasnif[clip]"        # core + CLIP backend
+pip install "tasnif[face]"        # core + face backend (DeepFace)
 pip install "tasnif[all]"         # everything
 ```
 
@@ -85,6 +87,9 @@ tasnif cluster photos/ -k 5 -o output/
 # Use CLIP and copy via symlink (fast, non-destructive)
 tasnif cluster photos/ -k 8 --embedder clip --model ViT-B-32 --mode symlink
 
+# Group portraits by person
+tasnif cluster portraits/ -k 10 --embedder face
+
 # Just compute embeddings, save .npy + .json
 tasnif embed photos/ --embedder timm --model convnext_base -o embeddings.npy
 
@@ -115,6 +120,25 @@ clf = TasnifClusterer(
     embedder_kwargs={"model": "ViT-L-14", "pretrained": "laion2b_s32b_b82k"},
 )
 ```
+
+Faces (requires `tasnif[face]`):
+
+```python
+clf = TasnifClusterer(
+    n_clusters=10,
+    embedder="face",
+    embedder_kwargs={"model": "Facenet512", "detector": "retinaface"},
+)
+```
+
+The `face` backend represents each image by its largest face, so photos of the
+same person cluster together whatever the background or framing. An image
+without a detectable face is embedded whole by the same model. `model` takes
+any [DeepFace](https://github.com/serengil/deepface) model (`Facenet512`,
+`ArcFace`, `SFace`, ...) and `detector` any of its detector backends
+(`retinaface`, `yunet`, `centerface`, ...). DeepFace runs on PyTorch when
+TensorFlow is not installed and picks its own device, so `device` is ignored.
+The models it wraps carry their own licenses; check them before production use.
 
 ## Custom backend
 

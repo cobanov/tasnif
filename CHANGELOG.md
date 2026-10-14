@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ClusterResult` dataclass: `labels`, `centroids`, `counts`, `paths`, `inertia`, `silhouette`, `embedder`, `pca_dim` - inspect results without writing to disk.
 - `ExportManifest` dataclass returned by `export_clusters` summarizing the run.
 - Optional CLIP backend via `[clip]` extra (`open_clip`).
+- Optional `face` backend via `[face]` extra ([DeepFace](https://github.com/serengil/deepface)): embeds the largest face in each image with a face recognition model (default `Facenet512` + `retinaface`), and the whole image when no face is found, so photos group by person. Proposed by [@serengil](https://github.com/serengil) in [#2](https://github.com/cobanov/tasnif/issues/2).
 - `Embedder` Protocol + `register_embedder()` for plugging in custom backbones.
 - First-class CLI: `tasnif cluster`, `tasnif embed`, `tasnif backends`.
 - Export modes: `copy`, `symlink`, `move`, `none`.
